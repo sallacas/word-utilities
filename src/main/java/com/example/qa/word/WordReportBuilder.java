@@ -40,7 +40,12 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 /**
- * Small facade over Apache POI for creating or extending Word QA evidence reports.
+ * Fachada fluida sobre Apache POI para crear, abrir y extender documentos Word
+ * usados como reportes o evidencias de automatizacion QA.
+ *
+ * <p>La clase centraliza operaciones comunes como titulos, parrafos, tablas,
+ * bloques de codigo, evidencias tecnicas, tabla de contenido y guardado del
+ * archivo, evitando que las pruebas dependan directamente de Apache POI.</p>
  */
 public final class WordReportBuilder implements AutoCloseable {
 
@@ -53,15 +58,34 @@ public final class WordReportBuilder implements AutoCloseable {
     private final Path outputPath;
     private boolean saved;
 
+    /**
+     * Inicializa el builder con un documento Apache POI y una ruta de salida.
+     *
+     * @param document documento Word en memoria
+     * @param outputPath ruta usada por {@link #save()}
+     */
     private WordReportBuilder(XWPFDocument document, Path outputPath) {
         this.document = Objects.requireNonNull(document, "document is required");
         this.outputPath = Objects.requireNonNull(outputPath, "outputPath is required");
     }
 
+    /**
+     * Crea un documento Word nuevo asociado a la ruta indicada.
+     *
+     * @param outputPath ruta donde se guardara el documento al ejecutar {@link #save()}
+     * @return builder listo para agregar contenido
+     */
     public static WordReportBuilder create(Path outputPath) {
         return new WordReportBuilder(new XWPFDocument(), outputPath);
     }
 
+    /**
+     * Abre un archivo Word existente para agregar o modificar contenido.
+     *
+     * @param existingPath ruta del archivo {@code .docx} existente
+     * @return builder construido sobre el documento existente
+     * @throws WordReportException si el archivo no existe o no puede abrirse
+     */
     public static WordReportBuilder open(Path existingPath) {
         Objects.requireNonNull(existingPath, "existingPath is required");
 
@@ -76,10 +100,26 @@ public final class WordReportBuilder implements AutoCloseable {
         }
     }
 
+    /**
+     * Abre un documento existente si ya existe o crea uno nuevo si la ruta aun no existe.
+     *
+     * <p>Este metodo es util para reportes acumulativos de ejecuciones QA.</p>
+     *
+     * @param outputPath ruta del documento a abrir o crear
+     * @return builder listo para agregar contenido
+     */
     public static WordReportBuilder openOrCreate(Path outputPath) {
         return Files.exists(outputPath) ? open(outputPath) : create(outputPath);
     }
 
+    /**
+     * Agrega metadatos basicos al documento Word.
+     *
+     * @param title titulo del documento
+     * @param subject asunto o descripcion corta
+     * @param author autor o equipo responsable del reporte
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder withMetadata(String title, String subject, String author) {
         POIXMLProperties.CoreProperties properties = document.getProperties().getCoreProperties();
         properties.setTitle(title);
@@ -88,6 +128,12 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Configura un encabezado de pagina con texto alineado a la derecha.
+     *
+     * @param text texto que aparecera en el encabezado del documento
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder withHeaderText(String text) {
         XWPFHeader header = document.createHeader(HeaderFooterType.DEFAULT);
         XWPFParagraph paragraph = header.createParagraph();
@@ -96,6 +142,12 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Configura un pie de pagina con texto centrado.
+     *
+     * @param text texto que aparecera en el pie de pagina del documento
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder withFooterText(String text) {
         XWPFFooter footer = document.createFooter(HeaderFooterType.DEFAULT);
         XWPFParagraph paragraph = footer.createParagraph();
@@ -104,6 +156,14 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Agrega un parrafo de texto normal al documento.
+     *
+     * <p>Si el texto contiene saltos de linea, se respetan dentro del mismo parrafo.</p>
+     *
+     * @param text contenido textual a insertar
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addParagraph(String text) {
         XWPFParagraph paragraph = document.createParagraph();
         paragraph.setSpacingAfter(160);
@@ -116,6 +176,16 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Agrega un encabezado usando estilos nativos de Word y nivel de esquema.
+     *
+     * <p>Estos encabezados alimentan la tabla de contenido y permiten que Word
+     * simule secciones colapsables desde el panel de navegacion o el propio titulo.</p>
+     *
+     * @param text texto del encabezado
+     * @param level nivel semantico y visual del encabezado
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addHeading(String text, HeadingLevel level) {
         Objects.requireNonNull(level, "level is required");
 
@@ -142,10 +212,27 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Agrega una tabla de contenido con niveles 1 a 3.
+     *
+     * <p>La tabla se inserta como campo de Word. Microsoft Word puede solicitar
+     * actualizar el campo al abrir el documento para calcular titulos y paginas.</p>
+     *
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addTableOfContents() {
         return addTableOfContents("Tabla de contenido", 1, 3);
     }
 
+    /**
+     * Agrega una tabla de contenido parametrizada.
+     *
+     * @param title titulo visible antes de la tabla de contenido
+     * @param fromLevel primer nivel de encabezado incluido, iniciando en 1
+     * @param toLevel ultimo nivel de encabezado incluido
+     * @return la misma instancia para encadenar llamadas
+     * @throws WordReportException si el rango de niveles es invalido
+     */
     public WordReportBuilder addTableOfContents(String title, int fromLevel, int toLevel) {
         if (fromLevel < 1 || toLevel < fromLevel) {
             throw new WordReportException("Invalid table of contents level range.");
@@ -162,6 +249,17 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Agrega una seccion con encabezado y contenido construido mediante una funcion.
+     *
+     * <p>La seccion queda preparada para comportarse como colapsable en Word porque
+     * el titulo usa estilos de encabezado y nivel de esquema.</p>
+     *
+     * @param title titulo de la seccion
+     * @param level nivel de encabezado de la seccion
+     * @param content bloque que agrega el contenido interno de la seccion
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addCollapsibleSection(
             String title,
             HeadingLevel level,
@@ -174,6 +272,15 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Agrega un bloque de texto tecnico con apariencia de consola o codigo.
+     *
+     * <p>Esta pensado para logs, JSON, XML, requests, responses, SQL,
+     * stack traces o cualquier evidencia tecnica monoespaciada.</p>
+     *
+     * @param code contenido tecnico a insertar
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addCodeBlock(String code) {
         XWPFTable table = document.createTable(1, 1);
         table.setWidth("100%");
@@ -196,6 +303,12 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Agrega una lista con vineta simple.
+     *
+     * @param items elementos a renderizar; si es {@code null} o vacia no agrega contenido
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addBulletList(List<String> items) {
         if (items == null || items.isEmpty()) {
             return this;
@@ -210,6 +323,12 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Agrega una lista numerada simple.
+     *
+     * @param items elementos a renderizar; si es {@code null} o vacia no agrega contenido
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addNumberedList(List<String> items) {
         if (items == null || items.isEmpty()) {
             return this;
@@ -225,6 +344,15 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Genera una tabla clave/valor a partir de un objeto.
+     *
+     * <p>Soporta {@link Map}, records, JavaBeans y, como ultima opcion,
+     * campos de instancia mediante reflexion.</p>
+     *
+     * @param object objeto fuente de datos
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addTableFromObject(Object object) {
         if (object == null) {
             return addParagraph("No hay datos disponibles.");
@@ -233,6 +361,15 @@ public final class WordReportBuilder implements AutoCloseable {
         return addTableFromMap(extractValues(object));
     }
 
+    /**
+     * Genera una tabla dinamica a partir de una lista de objetos.
+     *
+     * <p>Las columnas se calculan uniendo los nombres de propiedades/campos
+     * encontrados en todos los elementos de la lista.</p>
+     *
+     * @param objects lista de objetos fuente
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addTableFromObjects(List<?> objects) {
         if (objects == null || objects.isEmpty()) {
             return addParagraph("No hay filas disponibles.");
@@ -253,6 +390,12 @@ public final class WordReportBuilder implements AutoCloseable {
         return addTableFromRows(headers, rows);
     }
 
+    /**
+     * Genera una tabla clave/valor a partir de un mapa.
+     *
+     * @param map mapa con nombres de campo y valores
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addTableFromMap(Map<String, ?> map) {
         if (map == null || map.isEmpty()) {
             return addParagraph("No hay datos disponibles.");
@@ -274,6 +417,15 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Genera una tabla dinamica a partir de una lista de mapas.
+     *
+     * <p>Las columnas se construyen con la union ordenada de las llaves
+     * presentes en los mapas.</p>
+     *
+     * @param rows filas representadas como mapas de columna/valor
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addTableFromMaps(List<Map<String, ?>> rows) {
         if (rows == null || rows.isEmpty()) {
             return addParagraph("No hay filas disponibles.");
@@ -289,6 +441,15 @@ public final class WordReportBuilder implements AutoCloseable {
         return addTableFromRows(headers, normalizedRows);
     }
 
+    /**
+     * Inserta una imagen centrada en el documento.
+     *
+     * @param imagePath ruta de la imagen a insertar
+     * @param widthPx ancho deseado en pixeles
+     * @param heightPx alto deseado en pixeles
+     * @return la misma instancia para encadenar llamadas
+     * @throws WordReportException si la imagen no existe, tiene formato no soportado o no puede insertarse
+     */
     public WordReportBuilder addImage(Path imagePath, int widthPx, int heightPx) {
         Objects.requireNonNull(imagePath, "imagePath is required");
 
@@ -315,12 +476,22 @@ public final class WordReportBuilder implements AutoCloseable {
         }
     }
 
+    /**
+     * Inserta un salto de pagina.
+     *
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addPageBreak() {
         XWPFParagraph paragraph = document.createParagraph();
         paragraph.createRun().addBreak(BreakType.PAGE);
         return this;
     }
 
+    /**
+     * Inserta un separador horizontal sencillo.
+     *
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addSeparator() {
         XWPFParagraph paragraph = document.createParagraph();
         paragraph.setBorderBottom(Borders.SINGLE);
@@ -328,10 +499,23 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Inserta la fecha y hora local de ejecucion con formato {@code yyyy-MM-dd HH:mm:ss}.
+     *
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addExecutionDate() {
         return addParagraph("Fecha de ejecucion: " + EXECUTION_DATE_FORMAT.format(LocalDateTime.now()));
     }
 
+    /**
+     * Agrega una evidencia de prueba con titulo, descripcion y screenshot opcional.
+     *
+     * @param title titulo de la evidencia o caso de prueba
+     * @param description descripcion, resultado u observacion asociada
+     * @param screenshot ruta opcional de la captura; si es {@code null} o no existe se omite
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addTestEvidence(String title, String description, Path screenshot) {
         addHeading(title, HeadingLevel.SECTION);
         addParagraph(description);
@@ -343,6 +527,16 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Agrega una evidencia tecnica de API con resumen, request y response.
+     *
+     * @param title titulo de la evidencia API
+     * @param request request serializado o log de entrada
+     * @param response response serializado o log de salida
+     * @param statusCode codigo HTTP obtenido
+     * @param durationMillis duracion de la operacion en milisegundos
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addRequestResponseEvidence(
             String title,
             String request,
@@ -361,6 +555,13 @@ public final class WordReportBuilder implements AutoCloseable {
                 .addCodeBlock(response));
     }
 
+    /**
+     * Agrega una evidencia de log con etiqueta y contenido monoespaciado.
+     *
+     * @param label etiqueta descriptiva del log
+     * @param content contenido completo del log
+     * @return la misma instancia para encadenar llamadas
+     */
     public WordReportBuilder addLogEvidence(
             String label,
             String content
@@ -368,16 +569,37 @@ public final class WordReportBuilder implements AutoCloseable {
         return addEvidenceSection(label, content);
     }
 
+    /**
+     * Agrega una seccion generica de evidencia compuesta por etiqueta y bloque tecnico.
+     *
+     * @param label etiqueta visible antes del bloque
+     * @param content contenido tecnico de la evidencia
+     * @return la misma instancia para encadenar llamadas
+     */
     private WordReportBuilder addEvidenceSection(String label, String content) {
         addParagraph(label);
         addCodeBlock(content);
         return this;
     }
 
+    /**
+     * Guarda el documento en la ruta asociada al builder.
+     *
+     * @throws WordReportException si no se puede crear el directorio o escribir el archivo
+     */
     public void save() {
         saveAs(outputPath);
     }
 
+    /**
+     * Guarda el documento en una ruta especifica.
+     *
+     * <p>Permite abrir una plantilla o documento existente y exportar el resultado
+     * con otro nombre sin sobrescribir la fuente original.</p>
+     *
+     * @param targetPath ruta final donde se escribira el documento
+     * @throws WordReportException si no se puede crear el directorio o escribir el archivo
+     */
     public void saveAs(Path targetPath) {
         Objects.requireNonNull(targetPath, "targetPath is required");
 
@@ -397,6 +619,11 @@ public final class WordReportBuilder implements AutoCloseable {
         }
     }
 
+    /**
+     * Cierra los recursos del documento en memoria.
+     *
+     * @throws WordReportException si Apache POI no puede cerrar el documento
+     */
     @Override
     public void close() {
         try {
@@ -406,10 +633,22 @@ public final class WordReportBuilder implements AutoCloseable {
         }
     }
 
+    /**
+     * Indica si el documento fue guardado correctamente durante el ciclo de vida del builder.
+     *
+     * @return {@code true} si se ejecuto {@link #save()} o {@link #saveAs(Path)} con exito
+     */
     public boolean isSaved() {
         return saved;
     }
 
+    /**
+     * Construye una tabla con encabezados dinamicos y filas normalizadas.
+     *
+     * @param headers columnas que tendra la tabla
+     * @param rows datos normalizados por nombre de columna
+     * @return la misma instancia para encadenar llamadas
+     */
     private WordReportBuilder addTableFromRows(Set<String> headers, List<Map<String, Object>> rows) {
         if (headers.isEmpty()) {
             return addParagraph("No hay columnas disponibles.");
@@ -432,11 +671,23 @@ public final class WordReportBuilder implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Aplica formato base reutilizable a una tabla.
+     *
+     * @param table tabla Apache POI a formatear
+     */
     private void styleTable(XWPFTable table) {
         table.setWidth("100%");
         table.setCellMargins(80, 80, 80, 80);
     }
 
+    /**
+     * Escribe una fila de tabla, aplicando estilo especial si corresponde al encabezado.
+     *
+     * @param row fila de destino
+     * @param values valores de cada celda
+     * @param header indica si la fila es encabezado
+     */
     private void writeTableRow(XWPFTableRow row, List<String> values, boolean header) {
         for (int i = 0; i < values.size(); i++) {
             XWPFTableCell cell = row.getCell(i);
@@ -459,6 +710,15 @@ public final class WordReportBuilder implements AutoCloseable {
         }
     }
 
+    /**
+     * Crea un run de texto con formato basico dentro de un parrafo.
+     *
+     * @param paragraph parrafo de destino
+     * @param text texto a escribir
+     * @param fontFamily familia tipografica
+     * @param fontSize tamano de fuente en puntos
+     * @param bold indica si el texto debe ir en negrita
+     */
     private void writeRun(XWPFParagraph paragraph, String text, String fontFamily, int fontSize, boolean bold) {
         XWPFRun run = paragraph.createRun();
         run.setFontFamily(fontFamily);
@@ -467,6 +727,12 @@ public final class WordReportBuilder implements AutoCloseable {
         writeMultilineText(run, text);
     }
 
+    /**
+     * Escribe texto conservando saltos de linea dentro del run de Word.
+     *
+     * @param run run de destino
+     * @param text texto posiblemente multilinea
+     */
     private void writeMultilineText(XWPFRun run, String text) {
         String safeText = nullToEmpty(text);
         String[] lines = safeText.split("\\R", -1);
@@ -479,6 +745,12 @@ public final class WordReportBuilder implements AutoCloseable {
         }
     }
 
+    /**
+     * Configura el nivel de esquema del parrafo para navegacion, indice y colapso en Word.
+     *
+     * @param paragraph parrafo de encabezado
+     * @param level nivel semantico que define el outline
+     */
     private void applyOutlineLevel(XWPFParagraph paragraph, HeadingLevel level) {
         var paragraphProperties = paragraph.getCTP().isSetPPr()
                 ? paragraph.getCTP().getPPr()
@@ -491,12 +763,23 @@ public final class WordReportBuilder implements AutoCloseable {
         outlineLevel.setVal(BigInteger.valueOf(level.getOutlineLevel()));
     }
 
+    /**
+     * Elimina los parrafos creados por defecto dentro de una celda de tabla.
+     *
+     * @param cell celda a limpiar antes de escribir contenido
+     */
     private void removeDefaultParagraph(XWPFTableCell cell) {
         while (!cell.getParagraphs().isEmpty()) {
             cell.removeParagraph(0);
         }
     }
 
+    /**
+     * Extrae valores de un objeto en forma de mapa ordenado.
+     *
+     * @param object objeto fuente; puede ser mapa, valor simple, record, bean o clase con campos
+     * @return mapa con nombres de propiedades/campos y sus valores
+     */
     private Map<String, Object> extractValues(Object object) {
         if (object instanceof Map<?, ?> map) {
             Map<String, Object> result = new LinkedHashMap<>();
@@ -516,6 +799,12 @@ public final class WordReportBuilder implements AutoCloseable {
         return beanValues.isEmpty() ? extractFieldValues(object) : beanValues;
     }
 
+    /**
+     * Extrae componentes de un record Java usando sus accessors.
+     *
+     * @param record instancia de record
+     * @return mapa ordenado con nombres de componentes y valores
+     */
     private Map<String, Object> extractRecordValues(Object record) {
         Map<String, Object> values = new LinkedHashMap<>();
 
@@ -532,6 +821,12 @@ public final class WordReportBuilder implements AutoCloseable {
         }
     }
 
+    /**
+     * Extrae propiedades legibles de un JavaBean mediante introspeccion.
+     *
+     * @param bean instancia tipo JavaBean
+     * @return mapa ordenado con propiedades y valores
+     */
     private Map<String, Object> extractBeanValues(Object bean) {
         Map<String, Object> values = new LinkedHashMap<>();
 
@@ -551,6 +846,12 @@ public final class WordReportBuilder implements AutoCloseable {
         }
     }
 
+    /**
+     * Extrae campos de instancia cuando el objeto no expone propiedades JavaBean.
+     *
+     * @param object objeto fuente
+     * @return mapa ordenado con nombres de campo y valores
+     */
     private Map<String, Object> extractFieldValues(Object object) {
         Map<String, Object> values = new LinkedHashMap<>();
 
@@ -574,6 +875,12 @@ public final class WordReportBuilder implements AutoCloseable {
         }
     }
 
+    /**
+     * Determina si un valor puede representarse directamente en una celda sin introspeccion.
+     *
+     * @param value valor a evaluar
+     * @return {@code true} si es texto, numero, booleano, enum o tipo temporal
+     */
     private boolean isSimpleValue(Object value) {
         return value instanceof CharSequence
                 || value instanceof Number
@@ -582,6 +889,12 @@ public final class WordReportBuilder implements AutoCloseable {
                 || value instanceof TemporalAccessor;
     }
 
+    /**
+     * Convierte un valor a texto seguro para insertar en Word.
+     *
+     * @param value valor original
+     * @return representacion textual; cadena vacia si el valor es {@code null}
+     */
     private String stringify(Object value) {
         if (value == null) {
             return "";
@@ -594,6 +907,13 @@ public final class WordReportBuilder implements AutoCloseable {
         return String.valueOf(value);
     }
 
+    /**
+     * Detecta el tipo de imagen soportado por Apache POI segun la extension del archivo.
+     *
+     * @param imagePath ruta de la imagen
+     * @return constante de tipo de imagen esperada por Apache POI
+     * @throws WordReportException si la extension no esta soportada
+     */
     private int detectPictureType(Path imagePath) {
         String filename = imagePath.getFileName().toString().toLowerCase(Locale.ROOT);
 
@@ -616,6 +936,12 @@ public final class WordReportBuilder implements AutoCloseable {
         throw new WordReportException("Unsupported image format: " + filename);
     }
 
+    /**
+     * Normaliza texto nulo a cadena vacia.
+     *
+     * @param text texto original
+     * @return texto original o cadena vacia si era {@code null}
+     */
     private String nullToEmpty(String text) {
         return text == null ? "" : text;
     }
